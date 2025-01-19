@@ -25,6 +25,9 @@ public class GameManager : NetworkBehaviour
     }
     public event EventHandler CurrentPlayableplayerTypeChanged;
     public event EventHandler OnReMatch;
+    public event EventHandler OnGameTied;
+    public event EventHandler OnScoreChanged;
+    public event EventHandler OnObjectPlaced;
 
     public enum PlayerType
     {
@@ -50,6 +53,8 @@ public class GameManager : NetworkBehaviour
     private NetworkVariable<PlayerType> currentPlayablePlayerType = new NetworkVariable<PlayerType>();
     private PlayerType[,] playerTypeArray;
     private List<Line> lineList;
+    private NetworkVariable<int> playerCrossScore = new NetworkVariable<int>();
+    private NetworkVariable<int> playerCircleScore = new NetworkVariable<int>();
     private void Awake()
     {
         if (Instance == null)
@@ -127,6 +132,14 @@ oriyentation = Oriyentation.DiagonalB
         {
             CurrentPlayableplayerTypeChanged?.Invoke(this, EventArgs.Empty);
         };
+        playerCrossScore.OnValueChanged += (int oldValue, int newValue) =>
+        {
+            OnScoreChanged?.Invoke(this, EventArgs.Empty);
+        };
+        playerCircleScore.OnValueChanged += (int oldValue, int newValue) =>
+        {
+            OnScoreChanged?.Invoke(this, EventArgs.Empty);
+        };
     }
 
     private void NetworkManager_OnClientConnectedCallback(ulong obj)
@@ -159,6 +172,7 @@ oriyentation = Oriyentation.DiagonalB
             return;
         }
         playerTypeArray[x, y] = playerType;
+        TriggerOnObjectPlacedRpc();
         //Debug.Log(x + " " + y);
         OnClickedOnGridPosition?.Invoke(this, new OnClickedOnGridPositionEventArgs
         {
@@ -180,6 +194,11 @@ oriyentation = Oriyentation.DiagonalB
 
         TestWinner();
 
+    }
+    [Rpc(SendTo.ClientsAndHost)]
+    private void TriggerOnObjectPlacedRpc()
+    {
+        OnObjectPlaced?.Invoke(this, EventArgs.Empty);
     }
     private bool TestWinnerLine(Line line)
     {
@@ -204,18 +223,50 @@ oriyentation = Oriyentation.DiagonalB
         for (int i = 0; i < lineList.Count; i++)
         {
             Line line = lineList[i];
-
             // foreach (Line line in lineList)
             // {
             if (TestWinnerLine(line))
             {
                 //win
                 currentPlayablePlayerType.Value = PlayerType.None;
-                TriggerOnGameWinRpc(i, playerTypeArray[line.centerGridPosition.x, line.centerGridPosition.y]);
-                break;
+                PlayerType winPlayerType = playerTypeArray[line.centerGridPosition.x, line.centerGridPosition.y];
+                switch (winPlayerType)
+                {
+
+                    case PlayerType.Cross:
+                        playerCrossScore.Value++;
+                        break;
+                    case PlayerType.Circle:
+                        playerCircleScore.Value++;
+                        break;
+                }
+                TriggerOnGameWinRpc(i, winPlayerType);
+                return;
             }
         }
+        bool hasTie = true;
+        for (int x = 0; x < playerTypeArray.GetLength(0); x++)
+        {
+            for (int y = 0; y < playerTypeArray.GetLength(1); y++)
+            {
+                if (playerTypeArray[x, y] == PlayerType.None)
+                {
+                    hasTie = false;
+                    break;
+                }
+            }
+        }
+        if (hasTie)
+        {
+            TriggerOnGameTiedEventRpc();
+        }
 
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void TriggerOnGameTiedEventRpc()
+    {
+        OnGameTied?.Invoke(this, EventArgs.Empty);
     }
     [Rpc(SendTo.ClientsAndHost)]
     private void TriggerOnGameWinRpc(int lineIndex, PlayerType playerType)
@@ -260,4 +311,10 @@ oriyentation = Oriyentation.DiagonalB
         return currentPlayablePlayerType.Value;
     }
 
+    public void GetScores(out int circleScore, out int crossScore)
+    {
+        crossScore = this.playerCrossScore.Value;
+        circleScore = this.playerCircleScore.Value;
+
+    }
 }
